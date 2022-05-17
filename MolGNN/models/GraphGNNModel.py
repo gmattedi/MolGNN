@@ -1,6 +1,7 @@
-import models
 import torch_geometric.nn as geom_nn
 from torch import nn
+
+from MolGNN import models
 
 
 class GraphGNNModel(nn.Module):

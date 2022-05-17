@@ -5,10 +5,16 @@ from torch_geometric.loader import DataLoader
 
 from MolGNN import MolToGraph, models
 
+"""
+Test MolGNN on FreeSolv, with random split
+"""
+
+# ---- Config ------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
 CHECKPOINT_PATH = 'train/'
+# ------------------------
 
+# Load the data and process in into PyG Data objects
 solv = pd.read_csv('FreeSolv.tsv', sep=';')
 smiles = solv.SMILES.values
 y = (
@@ -38,7 +44,9 @@ model, result = models.train.train_graph_classifier(
     layer_name="GraphConv",
     num_layers=3,
     dp_rate_linear=0.5,
-    dp_rate=0.0
+    dp_rate=0.0,
+    device=device,
+    checkpoint_path='./trained_model/'
 )
 
 print(result)

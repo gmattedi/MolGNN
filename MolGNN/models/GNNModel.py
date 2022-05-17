@@ -12,7 +12,7 @@ class GNNModel(nn.Module):
 
     def __init__(
             self, c_in: int, c_hidden: int, c_out: int, num_layers: int = 2, layer_name: str = "GCN",
-            dropout: float = 0.1, **kwargs):
+            dp_rate: float = 0.1, **kwargs):
         """
         GNN model using several possible GNN layers
 
@@ -22,7 +22,7 @@ class GNNModel(nn.Module):
             c_out (int): Dimension of the output features. Usually number of classes in classification
             num_layers (int): Number of "hidden" graph layers
             layer_name (str): String of the graph layer to use (see gnn_layer_by_name dict)
-            dropout (float): Dropout rate to apply throughout the network
+            dp_rate (float): Dropout rate to apply throughout the network
             **kwargs: Additional arguments for the graph layer (e.g. number of heads for GAT)
         """
 
@@ -38,7 +38,7 @@ class GNNModel(nn.Module):
                           out_channels=out_channels,
                           **kwargs),
                 nn.ReLU(inplace=True),
-                nn.Dropout(dropout)
+                nn.Dropout(dp_rate)
             ]
             in_channels = c_hidden
         layers += [gnn_layer(in_channels=in_channels,

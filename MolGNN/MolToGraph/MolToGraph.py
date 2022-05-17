@@ -1,3 +1,4 @@
+from numbers import Number
 from typing import Sequence, Any, List
 
 import numpy as np
@@ -9,8 +10,17 @@ from torch_geometric.data import Data
 
 def one_hot_encoding(x: Any, values: Sequence[Any]) -> List[int]:
     """
-    Maps input elements x which are not in the permitted list to the last element
-    of the permitted list.
+    Sparse one-hot encoding of an input value, given a list of possible
+    values. If x is not in values, an extra dimension is added to the vector and
+    set to 1
+
+    Args:
+        x (Any)
+        values (Sequence[Any]): Possible values
+
+    Returns:
+        binary_encoding (List[int]): Sparse one-hot vector
+
     """
 
     if x not in values:
@@ -24,12 +34,18 @@ def one_hot_encoding(x: Any, values: Sequence[Any]) -> List[int]:
 def get_atom_features(
         atom: Chem.Atom,
         use_chirality: bool = True,
-        hydrogens_implicit: bool = True) -> np.ndarray:
+        implicit_hydrogens: bool = True) -> np.ndarray:
     """
-    Takes an RDKit atom object as input and gives a 1d-numpy array of atom features as output.
-    """
+    Featurize atom
+    
+    Args:
+        atom (Chem.Atom): Atom 
+        use_chirality (bool) 
+        implicit_hydrogens (bool)
 
-    # define list of permitted atoms
+    Returns:
+        atom_feature_vector (np.ndarray)
+    """
 
     allowed_elements = [
         'C', 'N', 'O', 'S', 'F', 'Si', 'P', 'Cl', 'Br', 'Mg', 'Na', 'Ca', 'Fe', 'As', 'Al', 'I',
@@ -37,7 +53,7 @@ def get_atom_features(
         'Cu', 'Au', 'Ni', 'Cd', 'In', 'Mn', 'Zr', 'Cr', 'Pt', 'Hg', 'Pb', 'Unknown'
     ]
 
-    if not hydrogens_implicit:
+    if not implicit_hydrogens:
         allowed_elements = ['H'] + allowed_elements
 
     # compute atom features
@@ -74,7 +90,7 @@ def get_atom_features(
                                                "CHI_OTHER"])
         atom_feature_vector += chirality_type_enc
 
-    if hydrogens_implicit:
+    if implicit_hydrogens:
         n_hydrogens_enc = one_hot_encoding(int(atom.GetTotalNumHs()), [0, 1, 2, 3, 4, "MoreThanFour"])
         atom_feature_vector += n_hydrogens_enc
 
@@ -84,7 +100,14 @@ def get_atom_features(
 def get_bond_features(bond: Chem.Bond,
                       use_stereochemistry: bool = True) -> np.ndarray:
     """
-    Takes an RDKit bond object as input and gives a 1d-numpy array of bond features as output.
+    Featurize bond
+
+    Args:
+        bond (Chem.Bond): Bond
+        use_stereochemistry (bool)
+
+    Returns:
+        bond_feature_vector (np.ndarray)
     """
 
     allowed_bonds = [Chem.rdchem.BondType.SINGLE, Chem.rdchem.BondType.DOUBLE, Chem.rdchem.BondType.TRIPLE,
@@ -105,22 +128,28 @@ def get_bond_features(bond: Chem.Bond,
     return np.array(bond_feature_vector)
 
 
-def create_pyg_data_lst(x_smiles, y):
+def create_pyg_data_lst(x_smiles: Sequence[str], y: Sequence[Number]) -> List[Data]:
     """
-    Inputs:
+    Package a sequence of smiles strings and labels as a list
+    of PyTorch geometric data objects, containing the molecule as graph
 
-    x_smiles = [smiles_1, smiles_2, ....] ... a list of SMILES strings
-    y = [y_1, y_2, ...] ... a list of numerial labels for the SMILES strings (such as associated pKi values)
+    Args:
+        x_smiles (Sequence[str])
+        y (Sequence[Number]):
 
-    Outputs:
-
-    data_list = [G_1, G_2, ...] ... a list of torch_geometric.data.Data objects which represent labeled molecular graphs that can readily be used for machine learning
-
+    Returns:
+        data_list (List[Data]): List of PyTorch geometric Data objects
     """
+
+    # We use this hack to determine the number of edge and node features
+    unrelated_smiles = "O=O"
+    unrelated_mol = Chem.MolFromSmiles(unrelated_smiles)
+    n_node_features = len(get_atom_features(unrelated_mol.GetAtomWithIdx(0)))
+    n_edge_features = len(get_bond_features(unrelated_mol.GetBondBetweenAtoms(0, 1)))
 
     data_list = []
 
-    for (smiles, y_val) in zip(x_smiles, y):
+    for smiles, label in zip(x_smiles, y):
 
         # convert SMILES to RDKit mol object
         mol = Chem.MolFromSmiles(smiles)
@@ -128,10 +157,6 @@ def create_pyg_data_lst(x_smiles, y):
         # get feature dimensions
         n_nodes = mol.GetNumAtoms()
         n_edges = 2 * mol.GetNumBonds()
-        unrelated_smiles = "O=O"
-        unrelated_mol = Chem.MolFromSmiles(unrelated_smiles)
-        n_node_features = len(get_atom_features(unrelated_mol.GetAtomWithIdx(0)))
-        n_edge_features = len(get_bond_features(unrelated_mol.GetBondBetweenAtoms(0, 1)))
 
         # construct node feature matrix X of shape (n_nodes, n_node_features)
         X = np.zeros((n_nodes, n_node_features))
@@ -156,7 +181,7 @@ def create_pyg_data_lst(x_smiles, y):
         EF = torch.tensor(EF, dtype=torch.float)
 
         # construct label tensor
-        y_tensor = torch.tensor(np.array([y_val]), dtype=torch.float)
+        y_tensor = torch.tensor(np.array([label]), dtype=torch.float)
 
         # construct Pytorch Geometric data object and append to data list
         data_list.append(Data(x=X, edge_index=E, edge_attr=EF, y=y_tensor))

@@ -1,1 +1,1 @@
-from MolToGraph import *
+from MolGNN.MolToGraph.MolToGraph import *
