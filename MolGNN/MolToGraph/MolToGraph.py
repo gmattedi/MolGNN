@@ -128,14 +128,15 @@ def get_bond_features(bond: Chem.Bond,
     return np.array(bond_feature_vector)
 
 
-def create_pyg_data_lst(x_smiles: Sequence[str], y: Sequence[Number]) -> List[Data]:
+def create_pyg_data_lst(x_smiles: Sequence[str], y: Sequence[Number], device: str = 'cpu') -> List[Data]:
     """
     Package a sequence of smiles strings and labels as a list
     of PyTorch geometric data objects, containing the molecule as graph
 
     Args:
         x_smiles (Sequence[str])
-        y (Sequence[Number]):
+        y (Sequence[Number])
+        device (str)
 
     Returns:
         data_list (List[Data]): List of PyTorch geometric Data objects
@@ -184,6 +185,6 @@ def create_pyg_data_lst(x_smiles: Sequence[str], y: Sequence[Number]) -> List[Da
         y_tensor = torch.tensor(np.array([label]), dtype=torch.float)
 
         # construct Pytorch Geometric data object and append to data list
-        data_list.append(Data(x=X, edge_index=E, edge_attr=EF, y=y_tensor))
+        data_list.append(Data(x=X, edge_index=E, edge_attr=EF, y=y_tensor).to(device))
 
     return data_list
