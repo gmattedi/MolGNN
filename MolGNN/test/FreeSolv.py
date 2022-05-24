@@ -44,7 +44,7 @@ model = models.GraphClassifier(
     lr=1e-2, weight_decay=0
 )
 
-val_loss, val_metric = model.fit(train_loader, val_loader, n_epochs=100, log_every_epochs=10, log_every_batches=1000)
+val_loss, val_metric = model.fit(train_loader, val_loader, n_epochs=100, log_every_epochs=10)
 
 print(f'Val loss: {val_loss:8.2f} | Val MCC {val_metric:8.2f}')
 
@@ -71,6 +71,6 @@ model = models.GraphRegressor(
     lr=1e-2, weight_decay=0
 )
 
-val_loss, val_metric = model.fit(train_loader, val_loader, n_epochs=100, log_every_epochs=10, log_every_batches=1000)
+val_loss, val_metric = model.fit(train_loader, val_loader, n_epochs=100, log_every_epochs=10)
 
 print(f'Val loss: {val_loss:8.2f} | Val R2 {val_metric:8.2f}')
