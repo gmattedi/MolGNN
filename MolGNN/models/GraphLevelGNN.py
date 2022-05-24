@@ -1,11 +1,12 @@
-import pytorch_lightning as pl
-from sklearn.metrics import r2_score
-from torch import nn, optim
+import torch
+from sklearn.metrics import matthews_corrcoef, r2_score
+from torch import nn
 
 from MolGNN import models
+from MolGNN.utils import logger
 
 
-class GraphLevelGNN(pl.LightningModule):
+class GraphLevelGNN(nn.Module):
 
     def __init__(self, **model_kwargs):
         """
@@ -15,12 +16,14 @@ class GraphLevelGNN(pl.LightningModule):
         """
 
         super().__init__()
-        # Saving hyperparameters
-        self.save_hyperparameters()
 
         self.model = models.GraphGNNModel(**model_kwargs)
 
-        self.loss_module = None
+        self.optimizer = None
+        self.criterion = None
+        self.metric = None
+
+        self.logger = logger
 
     def forward(self, data):
         x, edge_index, batch_idx = data.x, data.edge_index, data.batch
@@ -28,129 +31,94 @@ class GraphLevelGNN(pl.LightningModule):
         outputs = outputs.squeeze(dim=-1)
         return outputs
 
-    def metric_fn(self, preds, batch):
-        raise NotImplementedError
+    def step(self, batch):
+        self.optimizer.zero_grad()
 
-    def configure_optimizers(self, lr: float = 1e-2, weight_decay: float = 0.0):
-        # High lr because of small dataset and small model
-        optimizer = optim.AdamW(self.parameters(), lr=lr, weight_decay=lr)
-        return optimizer
+        outputs = self.forward(batch)
 
-    def training_step(self, batch, batch_idx):
-        raise NotImplementedError
+        loss = self.criterion(outputs, batch.y)
+        loss.backward()
+        self.optimizer.step()
 
-    def validation_step(self, batch, batch_idx):
-        raise NotImplementedError
+        return loss
 
-    def test_step(self, batch, batch_idx):
-        raise NotImplementedError
+    def fit(self, train_loader, val_loader, n_epochs: int, log_every_epochs: int):
+
+        for epoch in range(n_epochs):
+            for batch in train_loader:
+                _ = self.step(batch)
+
+            if (epoch % log_every_epochs == 0) or (epoch == n_epochs - 1):
+                val_loss, val_metric = self.evaluate(val_loader)
+
+                self.logger.info(
+                    f"Epoch: {epoch + 1:3d}/{n_epochs:3d} |"
+                    f" val loss: {val_loss:8.3f} | val metric: {val_metric:8.3f}"
+                )
+
+        val_loss, val_metric = self.evaluate(val_loader)
+        return val_loss, val_metric
+
+    def evaluate(self, val_loader):
+        with torch.no_grad():
+            val_outputs, val_y = [], []
+            for val_batch in val_loader:
+                val_outputs.append(self.forward(val_batch))
+                val_y.append(val_batch.y)
+
+        val_outputs = torch.cat(val_outputs)
+        val_y = torch.cat(val_y)
+
+        val_loss = self.criterion(val_outputs, val_y)
+        val_metric = self.metric(val_y, val_outputs)
+
+        return val_loss, val_metric
 
 
 class GraphClassifier(GraphLevelGNN):
 
-    def __init__(self, **model_kwargs):
+    def __init__(self, num_classes, lr: float, weight_decay: float, **model_kwargs):
         """
         Main GNN model
         Args:
             **model_kwargs:
         """
 
-        super().__init__(**model_kwargs)
-        # Saving hyperparameters
-        self.save_hyperparameters()
+        super().__init__(c_out=num_classes, **model_kwargs)
 
-        self.model = models.GraphGNNModel(**model_kwargs)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.criterion = nn.BCEWithLogitsLoss() if num_classes == 1 else nn.CrossEntropyLoss()
+        self.metric = matthews_corrcoef
 
-        self.loss_module = nn.BCEWithLogitsLoss() if self.hparams.c_out == 1 else nn.CrossEntropyLoss()
+    def evaluate(self, val_loader, threshold: float = 0.5):
+        with torch.no_grad():
+            val_outputs, val_y = [], []
+            for val_batch in val_loader:
+                val_outputs.append(self.forward(val_batch))
+                val_y.append(val_batch.y)
 
-    def metric_fn(self, y_true, preds):
-        acc = (preds == y_true).sum().float() / preds.shape[0]
-        return acc
+        val_outputs = torch.cat(val_outputs)
+        val_y = torch.cat(val_y)
 
-    def _step(self, batch, batch_idx):
-        outputs = self.forward(batch)
-        loss = self.loss_module(outputs, batch.y)
+        preds = (val_outputs >= threshold).to(int)
 
-        if self.hparams.c_out == 1:
-            preds = (outputs > 0).float()
-            batch.y = batch.y.float()
-        else:
-            preds = outputs.argmax(dim=-1)
-        acc = self.metric_fn(batch.y, preds)
+        val_loss = self.criterion(val_outputs, val_y)
+        val_metric = self.metric(val_y, preds)
 
-        return loss, acc
-
-    def training_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('train_loss', loss)
-        self.log('train_acc', acc)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('val_loss', loss)
-        self.log('val_acc', acc)
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('test_loss', loss)
-        self.log('test_acc', acc)
-        return loss
+        return val_loss, val_metric
 
 
 class GraphRegressor(GraphLevelGNN):
 
-    def __init__(self, **model_kwargs):
+    def __init__(self, lr: float, weight_decay: float, **model_kwargs):
         """
         Main GNN model
         Args:
             **model_kwargs:
         """
 
-        super().__init__(**model_kwargs)
-        # Saving hyperparameters
-        self.save_hyperparameters()
+        super().__init__(c_out=1, **model_kwargs)
 
-        self.model = models.GraphGNNModel(**model_kwargs)
-
-        self.loss_module = nn.MSELoss()
-
-    def metric_fn(self, y_true, preds):
-        r2 = r2_score(y_true, preds)
-        return r2
-
-    def _step(self, batch, batch_idx):
-        outputs = self.forward(batch)
-        loss = self.loss_module(outputs, batch.y)
-
-        r2 = self.metric_fn(
-            batch.y.detach().cpu().numpy(),
-            outputs.detach().cpu().numpy()
-        )
-
-        return loss, r2
-
-    def training_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('train_loss', loss)
-        self.log('train_r2', r2)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('val_loss', loss)
-        self.log('val_r2', r2)
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('test_loss', loss)
-        self.log('test_r2', r2)
-        return loss
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, weight_decay=weight_decay)
+        self.criterion = nn.MSELoss()
+        self.metric = r2_score

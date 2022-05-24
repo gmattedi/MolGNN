@@ -1,6 +1,7 @@
-import models
 import pytorch_lightning as pl
 from torch import nn, optim
+
+import models
 
 
 class GraphLevelGNN(pl.LightningModule):
