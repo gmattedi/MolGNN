@@ -11,10 +11,10 @@ Test MolGNN on FreeSolv, with random split
 
 # ---- Config ------
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-CHECKPOINT_PATH = 'train/'
 # ------------------------
 
-# ------------- CLASSIFICATION ------------------------
+print('----------------- CLASSIFICATION -----------------')
+CHECKPOINT_PATH = 'train_cls/'
 # Load the data and process in into PyG Data objects
 solv = pd.read_csv('FreeSolv.tsv', sep=';')
 smiles = solv.SMILES.values
@@ -46,12 +46,13 @@ _, result = models.train.train_graph_classifier(
     dp_rate_linear=0.5,
     dp_rate=0.0,
     device=device,
-    checkpoint_path='./trained_model/'
+    checkpoint_path=CHECKPOINT_PATH
 )
 
 print(result)
 
-# ------------- REGRESSION ------------------------
+print('----------------- REGRESSION ---------------------')
+CHECKPOINT_PATH = 'train_reg/'
 y = solv['experimental value (kcal/mol)'].values
 
 train_idx, val_idx = train_test_split(range(len(smiles)), test_size=0.2, random_state=42)
@@ -78,5 +79,7 @@ _, result = models.train.train_graph_regressor(
     dp_rate_linear=0.5,
     dp_rate=0.0,
     device=device,
-    checkpoint_path='./trained_model/'
+    checkpoint_path=CHECKPOINT_PATH
 )
+
+print(result)
