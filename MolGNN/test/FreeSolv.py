@@ -70,7 +70,7 @@ val_loader = DataLoader(
 
 _, result = models.train.train_graph_regressor(
     train_loader=train_loader, val_loader=val_loader,
-    num_node_features=79, num_classes=2,
+    num_node_features=79,
     model_name="GraphConv",
     c_hidden=256,
     layer_name="GraphConv",
