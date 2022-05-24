@@ -1,156 +1,44 @@
-import pytorch_lightning as pl
-from sklearn.metrics import r2_score
-from torch import nn, optim
+import torch_geometric.nn as geom_nn
+from torch import nn
 
 from MolGNN import models
 
 
-class GraphLevelGNN(pl.LightningModule):
+class GraphGNNModel(nn.Module):
 
-    def __init__(self, **model_kwargs):
+    def __init__(self, c_in: int, c_hidden: int, c_out: int, dp_rate_linear: float = 0.5, **kwargs):
         """
-        Main GNN model
+        Graph GCN model
+
         Args:
-            **model_kwargs:
+            c_in (int): Dimension of input features
+            c_hidden (int): Dimension of hidden features
+            c_out (int): Dimension of output features (usually number of classes)
+            dp_rate_linear (float): Dropout rate before the linear layer (usually much higher than inside the GNN)
+            **kwargs: Additional arguments for the GNNModel object
         """
 
         super().__init__()
-        # Saving hyperparameters
-        self.save_hyperparameters()
-
-        self.model = models.GraphGNNModel(**model_kwargs)
-
-        self.loss_module = None
-
-    def forward(self, data):
-        x, edge_index, batch_idx = data.x, data.edge_index, data.batch
-        outputs = self.model(x, edge_index, batch_idx)
-        outputs = outputs.squeeze(dim=-1)
-        return outputs
-
-    def metric_fn(self, preds, batch):
-        raise NotImplementedError
-
-    def configure_optimizers(self, lr: float = 1e-2, weight_decay: float = 0.0):
-        # High lr because of small dataset and small model
-        optimizer = optim.AdamW(self.parameters(), lr=lr, weight_decay=lr)
-        return optimizer
-
-    def training_step(self, batch, batch_idx):
-        raise NotImplementedError
-
-    def validation_step(self, batch, batch_idx):
-        raise NotImplementedError
-
-    def test_step(self, batch, batch_idx):
-        raise NotImplementedError
-
-
-class GraphClassifier(GraphLevelGNN):
-
-    def __init__(self, **model_kwargs):
-        """
-        Main GNN model
-        Args:
-            **model_kwargs:
-        """
-
-        super().__init__(**model_kwargs)
-        # Saving hyperparameters
-        self.save_hyperparameters()
-
-        self.model = models.GraphGNNModel(**model_kwargs)
-
-        self.loss_module = nn.BCEWithLogitsLoss() if self.hparams.c_out == 1 else nn.CrossEntropyLoss()
-
-    def metric_fn(self, y_true, preds):
-        acc = (preds == y_true).sum().float() / preds.shape[0]
-        return acc
-
-    def _step(self, batch, batch_idx):
-        outputs = self.forward(batch)
-        loss = self.loss_module(outputs, batch.y)
-
-        if self.hparams.c_out == 1:
-            preds = (outputs > 0).float()
-            batch.y = batch.y.float()
-        else:
-            preds = outputs.argmax(dim=-1)
-        acc = self.metric_fn(batch.y, preds)
-
-        return loss, acc
-
-    def training_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('train_loss', loss)
-        self.log('train_acc', acc)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('val_loss', loss)
-        self.log('val_acc', acc)
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        loss, acc = self._step(batch, batch_idx)
-
-        self.log('test_loss', loss)
-        self.log('test_acc', acc)
-        return loss
-
-
-class GraphRegressor(GraphLevelGNN):
-
-    def __init__(self, **model_kwargs):
-        """
-        Main GNN model
-        Args:
-            **model_kwargs:
-        """
-
-        super().__init__(**model_kwargs)
-        # Saving hyperparameters
-        self.save_hyperparameters()
-
-        self.model = models.GraphGNNModel(**model_kwargs)
-
-        self.loss_module = nn.MSELoss()
-
-    def metric_fn(self, y_true, preds):
-        r2 = r2_score(y_true, preds)
-        return r2
-
-    def _step(self, batch, batch_idx):
-        outputs = self.forward(batch)
-        loss = self.loss_module(outputs, batch.y)
-
-        r2 = self.metric_fn(
-            batch.y.detach().cpu().numpy(),
-            outputs.detach().cpu().numpy()
+        self.GNN = models.GNNModel(c_in=c_in,
+                                   c_hidden=c_hidden,
+                                   c_out=c_hidden,  # Not our prediction output yet!
+                                   **kwargs)
+        self.head = nn.Sequential(
+            nn.Dropout(dp_rate_linear),
+            nn.Linear(c_hidden, c_out)
         )
 
-        return loss, r2
+    def forward(self, x, edge_index, batch_idx):
+        """
+        Args:
+            x: Input features per node
+            edge_index: List of vertex index pairs representing the edges in the graph (PyTorch geometric notation)
+            batch_idx: Index of batch element for each node
 
-    def training_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('train_loss', loss)
-        self.log('train_r2', r2)
-        return loss
-
-    def validation_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('val_loss', loss)
-        self.log('val_r2', r2)
-        return loss
-
-    def test_step(self, batch, batch_idx):
-        loss, r2 = self._step(batch, batch_idx)
-
-        self.log('test_loss', loss)
-        self.log('test_r2', r2)
-        return loss
+        Returns:
+            x: Output
+        """
+        x = self.GNN(x, edge_index)
+        x = geom_nn.global_mean_pool(x, batch_idx)  # Average pooling
+        x = self.head(x)
+        return x

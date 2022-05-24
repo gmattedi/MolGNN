@@ -1,11 +1,9 @@
 import os
-import warnings
-from typing import Tuple, Dict
-
 import pytorch_lightning as pl
-from pytorch_lightning.callbacks import ModelCheckpoint
-
+import warnings
 from MolGNN import models
+from pytorch_lightning.callbacks import ModelCheckpoint
+from typing import Tuple, Dict
 
 warnings.filterwarnings(action='ignore')
 
@@ -45,6 +43,7 @@ def train_graph_classifier(
     result = {"test": test_result[0]['test_acc'], "train": train_result[0]['test_acc']}
 
     return model, result
+
 
 # TODO r2 return NaN
 def train_graph_regressor(
